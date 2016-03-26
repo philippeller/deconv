@@ -66,7 +66,7 @@ def trans_worker(params):
     return trans
 
 class CIA_enhance(object):
-    def __init__(self, filename, n_frames=None):
+    def __init__(self, filename, n_frames=None, patch_size=8):
         self.reader = imageio.get_reader(filename,  'ffmpeg')
         self.fps = self.reader.get_meta_data()['fps']
         vid_shape = self.reader.get_data(0).shape[:2]
@@ -77,12 +77,13 @@ class CIA_enhance(object):
             self.n_frames = n_frames
         else:
             self.n_frames = self.reader.get_length() - 1
-        self.patch_size = 8
         self.crop = 128
+        assert(self.crop % patch_size == 0)
+        self.patch_size = patch_size
 
     def align_and_crop(self):
         self.seq = []
-        self.alignement_error = []
+        self.alignement_error = [[],[]]
         for i in xrange(0,self.n_frames):
             # greyscale conversion
             img = np.average(self.reader.get_data(i),axis=2)
@@ -90,8 +91,8 @@ class CIA_enhance(object):
                 com = ndimage.measurements.center_of_mass(img)
                 for axis in [0,1]:
                     img = np.roll(img, int(round(self.center[axis]-com[axis])), axis=axis)
-            com = np.array(ndimage.measurements.center_of_mass(img))
-            self.alignement_error.append(np.sum(np.square(com-self.center)))
+                com = np.array(ndimage.measurements.center_of_mass(img))
+                self.alignement_error[n].append(np.sum(np.square(com-self.center)))
             # crop
             lower_bounds = self.center - self.crop
             upper_bounds = self.center + self.crop
@@ -99,14 +100,15 @@ class CIA_enhance(object):
             com = np.array(ndimage.measurements.center_of_mass(img_c))
             self.seq.append(img_c)
         
-        print self.alignement_error
 
     def transform(self):
         self.seq = np.array(self.seq)
         average = np.average(self.seq,axis=0)
         #self.seq_trans = []
 
-        params = zip(self.seq, [average]*len(self.seq), [self.patch_size]*len(self.seq) , [self.crop]*len(self.seq))
+        average_list = [average]*len(self.seq)
+
+        params = zip(self.seq, average_list, [self.patch_size]*len(self.seq) , [self.crop]*len(self.seq))
         pool = multiprocessing.Pool()
         self.seq_trans = pool.map(trans_worker, params)
 
@@ -116,6 +118,13 @@ class CIA_enhance(object):
 
         self.seq_trans = np.array(self.seq_trans)
         average_trans = np.average(self.seq_trans,axis=0)
+        average_list = np.array(average_list)
+
+        residuals_before = np.mean(np.square(self.seq - average_list),axis=(1,2))
+        residuals_after = np.mean(np.square(self.seq_trans - average_list),axis=(1,2))
+        central_residuals_before = np.mean(np.square(self.seq - average_list)[:,2*self.patch_size:-2*self.patch_size,2*self.patch_size:-2*self.patch_size],axis=(1,2))
+        central_residuals_after = np.mean(np.square(self.seq_trans - average_list)[:,2*self.patch_size:-2*self.patch_size,2*self.patch_size:-2*self.patch_size],axis=(1,2))
+
 
         #fig = plt.figure(figsize=(15,15), frameon=False)
         #fig.subplots_adjust(hspace=0)
@@ -146,13 +155,25 @@ class CIA_enhance(object):
 
         i = 3
 
-        fig = plt.figure(figsize=(20,15), frameon=False)
+        fig = plt.figure(figsize=(20,12), frameon=False)
         fig.subplots_adjust(hspace=0)
         fig.subplots_adjust(wspace=0)
         ax1 = fig.add_subplot(2, 3, 1)
         ax1.imshow(average, cmap='Greys_r')
         ax1.set_title('Average')
         #ax1.contour(average)
+
+        ax6 = fig.add_subplot(2,3,4)
+        ax6.plot(residuals_before,color='r',linestyle=':')
+        ax6.plot(residuals_after, color='b',linestyle=':')
+        ax6.plot(central_residuals_before,color='r')
+        ax6.plot(central_residuals_after,color='b')
+        ax6.plot(self.alignement_error[1],color='g')
+        ax6.axhline(np.average(residuals_before),color='r',linestyle=':')
+        ax6.axhline(np.average(residuals_after),color='b',linestyle=':')
+        ax6.axhline(np.average(central_residuals_before),color='r')
+        ax6.axhline(np.average(central_residuals_after),color='b')
+        ax6.axhline(np.average(self.alignement_error[1]),color='g')
 
         ax2 = fig.add_subplot(2, 3, 2)
         ax2.imshow(self.seq[i], cmap='Greys_r')
@@ -179,6 +200,6 @@ if __name__ == '__main__':
 
     filename = 'moon-00002.mp4'
     #filename = 'oaCapture-20150306-202356.avi'
-    enhancer = CIA_enhance(filename,5)
+    enhancer = CIA_enhance(filename,50,patch_size=8)
     enhancer.align_and_crop()
     enhancer.transform()
