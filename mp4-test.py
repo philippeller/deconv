@@ -82,7 +82,9 @@ class CIA_enhance(object):
         self.patch_size = patch_size
 
     def align_and_crop(self):
+        print '--- coarse alignement ---'
         self.seq = []
+        align_seq = []
         self.alignement_error = [[],[]]
         for i in xrange(0,self.n_frames):
             # greyscale conversion
@@ -93,15 +95,26 @@ class CIA_enhance(object):
                     img = np.roll(img, int(round(self.center[axis]-com[axis])), axis=axis)
                 com = np.array(ndimage.measurements.center_of_mass(img))
                 self.alignement_error[n].append(np.sum(np.square(com-self.center)))
-            # crop
-            lower_bounds = self.center - self.crop
-            upper_bounds = self.center + self.crop
-            img_c = img[lower_bounds[0]:upper_bounds[0],lower_bounds[1]:upper_bounds[1]]
-            com = np.array(ndimage.measurements.center_of_mass(img_c))
-            self.seq.append(img_c)
-        
+            align_seq.append(img)
+
+        #fine align
+        print '--- fine alignement ---'
+        lower_bounds = self.center - self.crop
+        upper_bounds = self.center + self.crop
+        self.seq.append(align_seq[0][lower_bounds[0]:upper_bounds[0],lower_bounds[1]:upper_bounds[1]])
+        for frame in align_seq[1:]:
+            res = []
+            for move_x in range(-10,10):
+                for move_y in range(-10,10):
+                    test = frame[lower_bounds[0]+move_x:upper_bounds[0]+move_x,lower_bounds[1]+move_y:upper_bounds[1]+move_y]
+                    res.append(np.sum(np.square(test-self.seq[0])))
+            minimum = np.argmin(res)
+            x_min = minimum/(20)-10
+            y_min = minimum%(20)-10
+            self.seq.append(align_seq[0][lower_bounds[0]+x_min:upper_bounds[0]+x_min:,lower_bounds[1]+y_min:upper_bounds[1]+y_min])
 
     def transform(self):
+        print '--- image warping ---'
         self.seq = np.array(self.seq)
         average = np.average(self.seq,axis=0)
         #self.seq_trans = []
@@ -164,14 +177,14 @@ class CIA_enhance(object):
         #ax1.contour(average)
 
         ax6 = fig.add_subplot(2,3,4)
-        ax6.plot(residuals_before,color='r',linestyle=':')
-        ax6.plot(residuals_after, color='b',linestyle=':')
-        ax6.plot(central_residuals_before,color='r')
+        #ax6.plot(residuals_before,color='r',linestyle=':')
+        #ax6.plot(residuals_after, color='b',linestyle=':')
+        #ax6.plot(central_residuals_before,color='r')
         ax6.plot(central_residuals_after,color='b')
         ax6.plot(self.alignement_error[1],color='g')
-        ax6.axhline(np.average(residuals_before),color='r',linestyle=':')
-        ax6.axhline(np.average(residuals_after),color='b',linestyle=':')
-        ax6.axhline(np.average(central_residuals_before),color='r')
+        #ax6.axhline(np.average(residuals_before),color='r',linestyle=':')
+        #ax6.axhline(np.average(residuals_after),color='b',linestyle=':')
+        #ax6.axhline(np.average(central_residuals_before),color='r')
         ax6.axhline(np.average(central_residuals_after),color='b')
         ax6.axhline(np.average(self.alignement_error[1]),color='g')
 
@@ -200,6 +213,6 @@ if __name__ == '__main__':
 
     filename = 'moon-00002.mp4'
     #filename = 'oaCapture-20150306-202356.avi'
-    enhancer = CIA_enhance(filename,50,patch_size=8)
+    enhancer = CIA_enhance(filename,200,patch_size=8)
     enhancer.align_and_crop()
     enhancer.transform()
