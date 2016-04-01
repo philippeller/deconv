@@ -9,6 +9,7 @@ from scipy.ndimage import zoom
 from scipy.ndimage import geometric_transform
 from scipy.interpolate import griddata
 from scipy.ndimage.interpolation import map_coordinates
+from mad import median_absolute_deviation
 
 def trans_worker(params):
     frame, average, patch_size, crop = params
@@ -77,7 +78,8 @@ class CIA_enhance(object):
             self.n_frames = n_frames
         else:
             self.n_frames = self.reader.get_length() - 1
-        self.crop = 128
+        #self.crop = 256
+        self.crop = 160
         assert(self.crop % patch_size == 0)
         self.patch_size = patch_size
 
@@ -113,13 +115,14 @@ class CIA_enhance(object):
             y_min = minimum%(20)-10
             self.seq.append(align_seq[0][lower_bounds[0]+x_min:upper_bounds[0]+x_min:,lower_bounds[1]+y_min:upper_bounds[1]+y_min])
 
+
     def transform(self):
         print '--- image warping ---'
         self.seq = np.array(self.seq)
-        average = np.average(self.seq,axis=0)
+        self.average = np.average(self.seq,axis=0)
         #self.seq_trans = []
 
-        average_list = [average]*len(self.seq)
+        average_list = [self.average]*len(self.seq)
 
         params = zip(self.seq, average_list, [self.patch_size]*len(self.seq) , [self.crop]*len(self.seq))
         pool = multiprocessing.Pool()
@@ -166,53 +169,108 @@ class CIA_enhance(object):
         #writer.append_data(average_trans)
         #writer.close()
 
-        i = 3
+        #i = 3
 
-        fig = plt.figure(figsize=(20,12), frameon=False)
+        #fig = plt.figure(figsize=(20,12), frameon=False)
+        #fig.subplots_adjust(hspace=0)
+        #fig.subplots_adjust(wspace=0)
+        #ax1 = fig.add_subplot(2, 3, 1)
+        #ax1.imshow(average, cmap='Greys_r')
+        #ax1.set_title('Average')
+        ##ax1.contour(average)
+
+        #ax6 = fig.add_subplot(2,3,4)
+        ##ax6.plot(residuals_before,color='r',linestyle=':')
+        ##ax6.plot(residuals_after, color='b',linestyle=':')
+        ##ax6.plot(central_residuals_before,color='r')
+        #ax6.plot(central_residuals_after,color='b')
+        #ax6.plot(self.alignement_error[1],color='g')
+        ##ax6.axhline(np.average(residuals_before),color='r',linestyle=':')
+        ##ax6.axhline(np.average(residuals_after),color='b',linestyle=':')
+        ##ax6.axhline(np.average(central_residuals_before),color='r')
+        #ax6.axhline(np.average(central_residuals_after),color='b')
+        #ax6.axhline(np.average(self.alignement_error[1]),color='g')
+
+        #ax2 = fig.add_subplot(2, 3, 2)
+        #ax2.imshow(self.seq[i], cmap='Greys_r')
+        #ax2.set_title('Frame %i'%i)
+
+        #ax4 = fig.add_subplot(2, 3, 5)
+        #im = ax4.imshow(np.square(self.seq[i]-average),vmin=0, vmax=20)
+        #ax4.set_title('Residuals')
+        #plt.colorbar(im,orientation="horizontal")
+
+
+        #ax3 = fig.add_subplot(2, 3, 3)
+        #ax3.imshow(self.seq_trans[i],cmap='Greys_r')
+        #ax3.set_title('Transform')
+
+        #ax5 = fig.add_subplot(2, 3, 6)
+        #im = ax5.imshow(np.square(self.seq_trans[i]-average),vmin=0, vmax=20)
+        #plt.colorbar(im,orientation="horizontal")
+        #ax5.set_title('Residuals')
+        #fig.set_tight_layout(True)
+        #plt.show()
+
+    def sharpness(self):
+        print '--- assembly ---'
+        new = np.zeros_like(self.seq_trans[0])
+        # smoothing param
+        mu = 1.
+        for x in xrange(new.shape[0]):
+            for y in xrange(new.shape[1]):
+                center_x = self.patch_size/2 if x > self.patch_size/2 else x
+                center_y = self.patch_size/2 if y > self.patch_size/2 else y
+                lower_bounds_x = x - center_x
+                upper_bounds_x = x + self.patch_size/2 - 1 if x+self.patch_size/2 <= new.shape[0] else new.shape[0]
+                lower_bounds_y = y - center_y
+                upper_bounds_y = y + self.patch_size/2 - 1 if y+self.patch_size/2 <= new.shape[1] else new.shape[1]
+                var = []
+                patches = self.seq_trans[:,lower_bounds_x:upper_bounds_x,lower_bounds_y:upper_bounds_y]
+                for patch in patches:
+                    variance = np.sum(np.square(patch - np.mean(patch)))
+                    L2 = patch.shape[0]*patch.shape[1]
+                    var.append(variance*1./(L2-1))
+                ref_patch = patches[np.argmax(var)]
+                Us = []
+                Urs = []
+                for patch in patches:
+                    U = np.sum(np.square(patch - ref_patch))
+                    U /= L2
+                    sigma_n2 =  median_absolute_deviation(patch)
+                    U -= 2*sigma_n2
+                    Ux = np.exp(-U/(mu**2))
+                    Us.append(Ux)
+                    Urs.append(Ux*patch[center_x,center_y])
+                Us = np.array(Us)
+                Urs = np.array(Urs)
+                new[x,y] = np.sum(Urs)/np.sum(Us)
+        writer = imageio.get_writer('diflim.jpeg',quality=100)
+        writer.append_data(new)
+        writer.close()
+        writer = imageio.get_writer('diflim.tif')
+        writer.append_data(new)
+        writer.close()
+        fig = plt.figure(figsize=(20,8), frameon=False)
         fig.subplots_adjust(hspace=0)
         fig.subplots_adjust(wspace=0)
-        ax1 = fig.add_subplot(2, 3, 1)
-        ax1.imshow(average, cmap='Greys_r')
-        ax1.set_title('Average')
-        #ax1.contour(average)
-
-        ax6 = fig.add_subplot(2,3,4)
-        #ax6.plot(residuals_before,color='r',linestyle=':')
-        #ax6.plot(residuals_after, color='b',linestyle=':')
-        #ax6.plot(central_residuals_before,color='r')
-        ax6.plot(central_residuals_after,color='b')
-        ax6.plot(self.alignement_error[1],color='g')
-        #ax6.axhline(np.average(residuals_before),color='r',linestyle=':')
-        #ax6.axhline(np.average(residuals_after),color='b',linestyle=':')
-        #ax6.axhline(np.average(central_residuals_before),color='r')
-        ax6.axhline(np.average(central_residuals_after),color='b')
-        ax6.axhline(np.average(self.alignement_error[1]),color='g')
-
-        ax2 = fig.add_subplot(2, 3, 2)
-        ax2.imshow(self.seq[i], cmap='Greys_r')
-        ax2.set_title('Frame %i'%i)
-
-        ax4 = fig.add_subplot(2, 3, 5)
-        im = ax4.imshow(np.square(self.seq[i]-average),vmin=0, vmax=20)
-        ax4.set_title('Residuals')
-        plt.colorbar(im,orientation="horizontal")
-
-
-        ax3 = fig.add_subplot(2, 3, 3)
-        ax3.imshow(self.seq_trans[i],cmap='Greys_r')
-        ax3.set_title('Transform')
-
-        ax5 = fig.add_subplot(2, 3, 6)
-        im = ax5.imshow(np.square(self.seq_trans[i]-average),vmin=0, vmax=20)
-        plt.colorbar(im,orientation="horizontal")
-        ax5.set_title('Residuals')
+        ax1 = fig.add_subplot(1, 3, 1)
+        ax1.imshow(self.average, cmap='Greys_r',interpolation='nearest')
+        ax1.set_title('average')
+        ax2 = fig.add_subplot(1, 3, 2)
+        ax2.imshow(new, cmap='Greys_r',interpolation='nearest')
+        ax2.set_title('new')
+        ax3 = fig.add_subplot(1, 3, 3)
+        ax3.plot(var)
         fig.set_tight_layout(True)
         plt.show()
+        
 
 if __name__ == '__main__':
 
-    filename = 'moon-00002.mp4'
-    #filename = 'oaCapture-20150306-202356.avi'
-    enhancer = CIA_enhance(filename,200,patch_size=8)
+    #filename = 'moon-00002.mp4'
+    filename = 'oaCapture-20150306-202356.avi'
+    enhancer = CIA_enhance(filename,5,patch_size=8)
     enhancer.align_and_crop()
     enhancer.transform()
+    enhancer.sharpness()
