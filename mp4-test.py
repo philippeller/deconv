@@ -79,7 +79,8 @@ class CIA_enhance(object):
         else:
             self.n_frames = self.reader.get_length() - 1
         #self.crop = 256
-        self.crop = 160
+        #self.crop = 160
+        self.crop = 512
         assert(self.crop % patch_size == 0)
         self.patch_size = patch_size
 
@@ -212,7 +213,7 @@ class CIA_enhance(object):
         #fig.set_tight_layout(True)
         #plt.show()
 
-    def sharpness(self):
+    def temporal_kernel_regression(self):
         print '--- assembly ---'
         new = np.zeros_like(self.seq_trans[0])
         # smoothing param
@@ -268,9 +269,11 @@ class CIA_enhance(object):
 
 if __name__ == '__main__':
 
-    #filename = 'moon-00002.mp4'
-    filename = 'oaCapture-20150306-202356.avi'
-    enhancer = CIA_enhance(filename,5,patch_size=8)
+    filename = 'moon-00002.mp4'
+    #filename = 'oaCapture-20150306-202356.avi'
+    #filename = 'saturn-20150605-233034-000000.avi'
+    #filename = 'moon_close.avi'
+    enhancer = CIA_enhance(filename,160,patch_size=16)
     enhancer.align_and_crop()
     enhancer.transform()
-    enhancer.sharpness()
+    enhancer.temporal_kernel_regression()
